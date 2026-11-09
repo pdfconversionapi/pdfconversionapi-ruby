@@ -1,0 +1,97 @@
+name: Release
+
+# Publishes the gem to RubyGems.org when a version tag (v0.1.0, ...) is pushed.
+#
+# 1. test: checks the tag against the version, runs the unit and conformance tests (with the suite
+#    bundled in conformance/), then the live tests against the production API when the
+#    PDFCONVERSIONAPI_KEY secret is set.
+# 2. publish: runs in the "rubygems" environment (it waits for a reviewer's approval when the
+#    environment requires one), builds the gem and pushes it.
+#
+# Uses RubyGems trusted publishing (OpenID Connect): no API key is stored in GitHub. Before the
+# first release, add a trusted publisher on rubygems.org for this repository with the workflow
+# file name release.yml and the environment rubygems.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    env:
+      PDFCONVERSIONAPI_CONFORMANCE_DIR: ${{ github.workspace }}/conformance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4 # runs the conformance suite's mock API
+        with:
+          node-version: "22"
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: Check that the tag matches the version
+        run: |
+          version=$(ruby -Ilib -e 'require "pdfconversionapi/version"; print PdfConversionApi::VERSION')
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME doesn't match version $version" >&2
+            exit 1
+          fi
+
+      - name: Check that the conformance suite is in the repository
+        run: |
+          test -f conformance/cases.json && test -f conformance/mock-server.mjs || {
+            echo "::error::conformance/ is missing: this repository keeps a copy of the shared test suite (https://github.com/pdfconversionapi/sdk-conformance) there"
+            exit 1
+          }
+
+      - name: Unit tests
+        run: bundle exec rake test:unit
+
+      - name: Conformance tests
+        run: bundle exec rake test:conformance
+
+      - name: Live tests against the production API
+        env:
+          PDFCONVERSIONAPI_KEY: ${{ secrets.PDFCONVERSIONAPI_KEY }}
+          PDFCONVERSIONAPI_LIVE_BASE_URL: https://api.pdfconversionapi.com
+        run: |
+          if [ -z "$PDFCONVERSIONAPI_KEY" ]; then
+            echo "::warning::The PDFCONVERSIONAPI_KEY secret is not set: live tests skipped."
+            exit 0
+          fi
+          bundle exec rake test:live
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: rubygems
+    permissions:
+      contents: read
+      id-token: write # trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: Build
+        run: gem build pdfconversionapi.gemspec
+
+      - name: Get a short-lived RubyGems key from the trusted publisher
+        uses: rubygems/configure-rubygems-credentials@v1.0.0
+
+      - name: Publish
+        run: gem push pdfconversionapi-*.gem

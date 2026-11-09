@@ -1,0 +1,189 @@
+# Type signatures for the public API of the pdfconversionapi gem.
+module PdfConversionApi
+  VERSION: String
+
+  type input = String | Pathname | _Reader | UploadFile
+  type param_value = String | Symbol | Integer | Float | Rational | bool | nil | Pathname | _Reader | UploadFile
+
+  interface _Reader
+    def read: (?Integer? length, ?String? outbuf) -> String?
+  end
+
+  class Error < StandardError
+  end
+
+  class MissingApiKeyError < Error
+  end
+
+  class StoredFileError < Error
+  end
+
+  class ConnectionError < Error
+  end
+
+  class TimeoutError < Error
+  end
+
+  class InvalidResponseError < Error
+    attr_reader status: Integer?
+    attr_reader request_id: String?
+
+    def initialize: (String message, ?status: Integer?, ?request_id: String?) -> void
+  end
+
+  class ApiError < Error
+    attr_reader status: Integer
+    attr_reader request_id: String?
+    attr_reader retry_after: Integer?
+    attr_reader body: String
+
+    def initialize: (String message, status: Integer, ?request_id: String?, ?retry_after: Integer?, ?body: String) -> void
+    def message: () -> String
+    def to_s: () -> String
+    def detailed_message: (?highlight: bool, **untyped) -> String
+  end
+
+  class BadRequestError < ApiError
+  end
+
+  class AuthenticationError < ApiError
+  end
+
+  class PermissionDeniedError < ApiError
+  end
+
+  class NotFoundError < ApiError
+  end
+
+  class PayloadTooLargeError < ApiError
+  end
+
+  class UnprocessableEntityError < ApiError
+  end
+
+  class RateLimitError < ApiError
+  end
+
+  class InternalServerError < ApiError
+  end
+
+  class ServiceUnavailableError < ApiError
+  end
+
+  class GatewayTimeoutError < ApiError
+  end
+
+  ERROR_CLASSES: Hash[Integer, singleton(ApiError)]
+
+  class UploadFile
+    DEFAULT_NAME: String
+
+    attr_reader name: String
+    attr_reader path: String?
+
+    def self.from_path: (String | Pathname path, ?String? name) -> UploadFile
+    def self.from_bytes: (String data, ?String? name) -> UploadFile
+    def self.from_io: (_Reader io, ?String? name) -> UploadFile
+    def self.from_stream: (_Reader io, ?String? name) -> UploadFile
+    def self.coerce: (input input) -> UploadFile
+    def self.file_like?: (untyped value) -> bool
+    def self.base_name: (untyped name) -> String
+    def self.path_string: (untyped path) -> String
+
+    def initialize: (name: String?, ?path: String?, ?data: String?) -> void
+    def size: () -> Integer
+    def open_io: () -> (File | StringIO)
+  end
+
+  class OutputFile
+    attr_reader name: String
+    attr_reader ext: String
+    attr_reader size: Integer
+    attr_reader url: String?
+    attr_reader file_id: String?
+
+    def self.safe_name: (String name) -> String
+
+    def stored?: () -> bool
+    def stored: () -> bool
+    def data: () -> String
+    def bytes: () -> String
+    def download: (?timeout: Numeric?) -> String
+    def save: (String | Pathname path, ?timeout: Numeric?) -> String
+    def download_to: (String | Pathname path, ?timeout: Numeric?) -> String
+    def to_h: () -> Hash[Symbol, untyped]
+  end
+
+  class ConversionResult
+    include Enumerable[OutputFile]
+
+    attr_reader files: Array[OutputFile]
+    attr_reader conversion_cost: Integer?
+    attr_reader conversion_time: Float?
+    attr_reader request_id: String?
+
+    def file: () -> OutputFile?
+    def each: () { (OutputFile) -> void } -> Array[OutputFile]
+            | () -> Enumerator[OutputFile, Array[OutputFile]]
+    def save_all: (String | Pathname dir, ?timeout: Numeric?) -> Array[String]
+  end
+
+  class Usage
+    attr_reader plan: String?
+    attr_reader included: Integer?
+    attr_reader used: Integer?
+    attr_reader remaining: Integer?
+    attr_reader overage: bool?
+    attr_reader running: Integer?
+    attr_reader concurrent_limit: Integer?
+    attr_reader max_upload_mb: Integer?
+    attr_reader period_start: Time?
+    attr_reader period_end: Time?
+
+    def overage?: () -> bool?
+    def to_h: () -> Hash[Symbol, untyped]
+  end
+
+  class Conversion
+    attr_reader from: String?
+    attr_reader to: String?
+    attr_reader title: String?
+    attr_reader category: String?
+    attr_reader inputs: String?
+
+    def from_format: () -> String?
+    def to_format: () -> String?
+    def to_h: () -> Hash[Symbol, untyped]
+  end
+
+  class Client
+    DEFAULT_BASE_URL: String
+    DEFAULT_TIMEOUT: Integer
+    DEFAULT_CONNECT_TIMEOUT: Integer
+    DEFAULT_MAX_RETRIES: Integer
+    DEFAULT_MAX_RETRY_WAIT: Integer
+    USER_AGENT: String
+    FORMAT: Regexp
+    FILE_ID: Regexp
+
+    attr_reader base_url: String
+    attr_reader timeout: Numeric
+    attr_reader connect_timeout: Numeric
+    attr_reader max_retries: Integer
+    attr_reader max_retry_wait: Numeric
+
+    def initialize: (?api_key: String?, ?base_url: String?, ?timeout: Numeric, ?connect_timeout: Numeric,
+                     ?max_retries: Integer, ?max_retry_wait: Numeric, ?sleeper: (^(Numeric) -> untyped)?) -> void
+    def api_key?: () -> bool
+    def convert: (String | Symbol from, String | Symbol to, ?(input | Array[input])? files,
+                  ?params: Hash[String | Symbol, param_value]?, ?file_name: String?, ?store_file: bool?,
+                  ?timeout: Numeric?) -> ConversionResult
+    def convert_file: (String | Pathname path, String | Symbol to, ?params: Hash[String | Symbol, param_value]?,
+                       ?file_name: String?, ?store_file: bool?, ?timeout: Numeric?) -> ConversionResult
+    def usage: () -> Usage
+    def conversions: () -> Array[Conversion]
+    def download: (String url, ?timeout: Numeric?) -> String
+    def download_to: (String url, String | Pathname path, ?timeout: Numeric?) -> String
+    def delete_stored_file: (String file_id) -> bool
+  end
+end

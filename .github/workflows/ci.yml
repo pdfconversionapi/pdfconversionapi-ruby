@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Ruby ${{ matrix.ruby }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ["3.0", "3.1", "3.2", "3.3", "3.4"]
+    env:
+      # The copy of the shared conformance suite (mock API, cases, fixtures) in conformance/.
+      PDFCONVERSIONAPI_CONFORMANCE_DIR: ${{ github.workspace }}/conformance
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the conformance suite is in the repository
+        run: |
+          test -f conformance/cases.json && test -f conformance/mock-server.mjs || {
+            echo "::error::conformance/ is missing: this repository keeps a copy of the shared test suite (https://github.com/pdfconversionapi/sdk-conformance) there"
+            exit 1
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+
+      - name: Lint
+        run: bundle exec rake lint
+
+      - name: Unit tests
+        run: bundle exec rake test:unit
+
+      - name: Conformance tests
+        run: bundle exec rake test:conformance
+
+      - name: Type signatures
+        if: matrix.ruby == '3.4'
+        run: |
+          bundle exec rake rbs
+          bundle exec rake test:types
+
+      - name: Build the gem
+        run: bundle exec rake build
